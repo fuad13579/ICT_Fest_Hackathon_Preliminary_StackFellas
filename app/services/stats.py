@@ -3,28 +3,28 @@
 Confirmed-booking counts and revenue are tracked incrementally so the stats
 endpoint can serve them without re-aggregating the whole booking table.
 """
-import time
+from sqlalchemy import func
 
-_stats: dict[int, dict] = {}
-
-
-def _aggregate_pause() -> None:
-    time.sleep(0.1)
+from ..database import SessionLocal
+from ..models import Booking
 
 
 def record_create(room_id: int, price_cents: int) -> None:
-    current = _stats.get(room_id, {"count": 0, "revenue": 0})
-    count, revenue = current["count"], current["revenue"]
-    _aggregate_pause()
-    _stats[room_id] = {"count": count + 1, "revenue": revenue + price_cents}
+    return None
 
 
 def record_cancel(room_id: int, price_cents: int) -> None:
-    current = _stats.get(room_id, {"count": 0, "revenue": 0})
-    count, revenue = current["count"], current["revenue"]
-    _aggregate_pause()
-    _stats[room_id] = {"count": max(0, count - 1), "revenue": revenue - price_cents}
+    return None
 
 
 def get(room_id: int) -> dict:
-    return _stats.get(room_id, {"count": 0, "revenue": 0})
+    db = SessionLocal()
+    try:
+        count, revenue = (
+            db.query(func.count(Booking.id), func.coalesce(func.sum(Booking.price_cents), 0))
+            .filter(Booking.room_id == room_id, Booking.status == "confirmed")
+            .one()
+        )
+        return {"count": int(count or 0), "revenue": int(revenue or 0)}
+    finally:
+        db.close()
