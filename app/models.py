@@ -62,6 +62,8 @@ class Booking(Base):
 class RefundLog(Base):
     __tablename__ = "refund_logs"
 
+    __table_args__ = (UniqueConstraint("booking_id", name="uq_refund_booking"),)
+
     id = Column(Integer, primary_key=True)
     booking_id = Column(Integer, ForeignKey("bookings.id"), nullable=False, index=True)
     amount_cents = Column(Integer, nullable=False)
