@@ -4,25 +4,18 @@ When a booking is cancelled a refund is calculated from its price and the
 applicable notice tier, then written to the refund ledger with a processed
 status. Amounts are stored in whole cents.
 """
-from datetime import datetime
-
 from sqlalchemy.orm import Session
 
 from ..models import Booking, RefundLog
+from ..timeutils import utcnow
 
 
-def calculate_refund_amount_cents(price_cents: int, percent: int) -> int:
-    return (price_cents * percent + 50) // 100
-
-
-def log_refund(db: Session, booking: Booking, percent: int) -> RefundLog:
+def log_refund(db: Session, booking: Booking, amount_cents: int) -> RefundLog:
     entry = RefundLog(
         booking_id=booking.id,
-        amount_cents=calculate_refund_amount_cents(booking.price_cents, percent),
+        amount_cents=amount_cents,
         status="processed",
-        processed_at=datetime.utcnow(),
+        processed_at=utcnow(),
     )
     db.add(entry)
-    db.commit()
-    db.refresh(entry)
     return entry

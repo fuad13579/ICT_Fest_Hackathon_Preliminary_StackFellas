@@ -91,10 +91,11 @@ def revoke_access_token(payload: dict) -> None:
 
 
 def consume_refresh_token(payload: dict) -> None:
+    jti = payload["jti"]
     with _token_state_lock:
-        if payload.get("jti") in _used_refresh_tokens:
+        if jti in _used_refresh_tokens:
             raise AppError(401, "UNAUTHORIZED", "Refresh token has already been used")
-        _used_refresh_tokens.add(payload["jti"])
+        _used_refresh_tokens.add(jti)
 
 
 def get_token_payload(request: Request) -> dict:
