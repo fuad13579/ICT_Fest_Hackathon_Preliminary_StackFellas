@@ -188,14 +188,14 @@ def test_usage_report_accepts_iso_datetime_range():
 def test_short_booking_window_is_rejected():
     headers = _register_login(f"window-{datetime.now().timestamp()}")["headers"]
     room_id = _create_room(headers)
+    start = datetime.now(timezone.utc).replace(second=0, microsecond=0) + timedelta(hours=60)
+    end = start + timedelta(minutes=30)
     response = client.post(
         "/bookings",
         json={
             "room_id": room_id,
-            "start_time": _future(60),
-            "end_time": (
-                datetime.now(timezone.utc) + timedelta(hours=60, minutes=30)
-            ).replace(second=0, microsecond=0).isoformat(),
+            "start_time": start.isoformat(),
+            "end_time": end.isoformat(),
         },
         headers=headers,
     )
