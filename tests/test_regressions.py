@@ -114,6 +114,77 @@ def test_booking_detail_preserves_start_time_and_cancel_refund_policy():
     assert cancelled.json()["refund_amount_cents"] == 501
 
 
+def test_member_cannot_get_another_members_booking_but_admin_can():
+    org = f"visibility-{datetime.now().timestamp()}"
+    admin = _register_login(org)
+    room_id = _create_room(admin["headers"])
+    bob = _register_login(org, "bob")
+    charlie = _register_login(org, "charlie")
+
+    booking = client.post(
+        "/bookings",
+        json={"room_id": room_id, "start_time": _future(35), "end_time": _future(36)},
+        headers=bob["headers"],
+    )
+    assert booking.status_code == 201
+    booking_id = booking.json()["id"]
+
+    member_detail = client.get(f"/bookings/{booking_id}", headers=charlie["headers"])
+    assert member_detail.status_code == 404
+    assert member_detail.json()["code"] == "BOOKING_NOT_FOUND"
+
+    admin_detail = client.get(f"/bookings/{booking_id}", headers=admin["headers"])
+    assert admin_detail.status_code == 200
+    assert admin_detail.json()["id"] == booking_id
+
+
+def test_booking_serialization_uses_z_suffix():
+    headers = _register_login(f"z-{datetime.now().timestamp()}")["headers"]
+    room_id = _create_room(headers)
+
+    booking = client.post(
+        "/bookings",
+        json={"room_id": room_id, "start_time": _future(40), "end_time": _future(41)},
+        headers=headers,
+    )
+    assert booking.status_code == 201
+    booking_json = booking.json()
+    assert booking_json["start_time"].endswith("Z")
+    assert booking_json["end_time"].endswith("Z")
+    assert booking_json["created_at"].endswith("Z")
+
+    detail = client.get(f"/bookings/{booking_json['id']}", headers=headers)
+    assert detail.status_code == 200
+    assert detail.json()["start_time"].endswith("Z")
+
+
+def test_usage_report_accepts_iso_datetime_range():
+    admin = _register_login(f"report-iso-{datetime.now().timestamp()}")
+    room_id = _create_room(admin["headers"])
+    booking = client.post(
+        "/bookings",
+        json={"room_id": room_id, "start_time": _future(120), "end_time": _future(121)},
+        headers=admin["headers"],
+    )
+    assert booking.status_code == 201
+
+    booking_start = datetime.fromisoformat(booking.json()["start_time"].replace("Z", "+00:00"))
+    from_value = (booking_start - timedelta(hours=1)).astimezone(
+        timezone(timedelta(hours=6))
+    ).isoformat()
+    to_value = booking_start.astimezone(timezone(timedelta(hours=6))).isoformat()
+
+    report = client.get(
+        "/admin/usage-report",
+        params={"from": from_value, "to": to_value},
+        headers=admin["headers"],
+    )
+    assert report.status_code == 200
+    room_rows = {row["room_id"]: row for row in report.json()["rooms"]}
+    assert room_rows[room_id]["confirmed_bookings"] == 1
+    assert room_rows[room_id]["revenue_cents"] == 1001
+
+
 def test_short_booking_window_is_rejected():
     headers = _register_login(f"window-{datetime.now().timestamp()}")["headers"]
     room_id = _create_room(headers)

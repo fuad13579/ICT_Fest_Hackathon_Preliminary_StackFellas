@@ -11,8 +11,30 @@ from ..database import get_db
 from ..errors import AppError
 from ..models import Booking, Room, User
 from ..services.export import generate_export
+from ..timeutils import parse_input_datetime
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+
+def _parse_report_start(value: str) -> datetime:
+    try:
+        return datetime.strptime(value, "%Y-%m-%d")
+    except ValueError:
+        try:
+            return parse_input_datetime(value)
+        except ValueError:
+            raise AppError(400, "INVALID_BOOKING_WINDOW", "Invalid date range")
+
+
+def _parse_report_end(value: str) -> tuple[datetime, bool]:
+    try:
+        date_value = datetime.strptime(value, "%Y-%m-%d").date()
+        return datetime.combine(date_value + timedelta(days=1), time.min), True
+    except ValueError:
+        try:
+            return parse_input_datetime(value), False
+        except ValueError:
+            raise AppError(400, "INVALID_BOOKING_WINDOW", "Invalid date range")
 
 
 @router.get("/usage-report")
@@ -26,14 +48,12 @@ def usage_report(
     if cached is not None:
         return cached
 
-    try:
-        from_date = datetime.strptime(frm, "%Y-%m-%d").date()
-        to_date = datetime.strptime(to, "%Y-%m-%d").date()
-    except ValueError:
-        raise AppError(400, "INVALID_BOOKING_WINDOW", "Invalid date range")
-
-    range_start = datetime.combine(from_date, time.min)
-    range_end = datetime.combine(to_date + timedelta(days=1), time.min)
+    range_start = _parse_report_start(frm)
+    range_end, end_is_exclusive = _parse_report_end(to)
+    if end_is_exclusive:
+        end_filter = Booking.start_time < range_end
+    else:
+        end_filter = Booking.start_time <= range_end
 
     rooms = db.query(Room).filter(Room.org_id == admin.org_id).order_by(Room.id.asc()).all()
     room_rows = []
@@ -44,7 +64,7 @@ def usage_report(
                 Booking.room_id == room.id,
                 Booking.status == "confirmed",
                 Booking.start_time >= range_start,
-                Booking.start_time < range_end,
+                end_filter,
             )
             .all()
         )
