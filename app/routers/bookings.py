@@ -14,6 +14,7 @@ from ..schemas import BookingCreateRequest
 from ..serializers import serialize_booking
 from ..services import notifications, ratelimit, reference, stats
 from ..services.refunds import log_refund
+from sqlalchemy.exc import IntegrityError
 from ..timeutils import iso_utc, parse_input_datetime, utcnow
 
 router = APIRouter(tags=["bookings"])
@@ -219,12 +220,17 @@ def cancel_booking(
     # Round to nearest cent, half-cents round up
     refund_amount_cents = (booking.price_cents * refund_percent + 50) // 100
 
-    log_refund(db, booking, refund_amount_cents)
+    try:
+        # Attempt to write refund and mark booking cancelled atomically.
+        log_refund(db, booking, refund_amount_cents)
+        booking.status = "cancelled"
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        # Another concurrent cancel already processed the refund/status.
+        raise AppError(409, "ALREADY_CANCELLED", "Booking already cancelled")
 
     _settlement_pause()
-    booking.status = "cancelled"
-    db.commit()
-
     stats.record_cancel(booking.room_id, booking.price_cents)
     cache.invalidate_report(user.org_id)
     notifications.notify_cancelled(booking)
